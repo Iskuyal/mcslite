@@ -73,7 +73,22 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install.ps1
 
 ---
 
-## 阶段 2 · 放置面板文件（三选一）
+## 阶段 2 · 部署面板文件（三选一）
+
+> **最短路径就是字面意思：拷目录 → 双击根目录的「启动面板.bat」。**
+> `web\dist` 已随仓库分发，所以一次 `npm install` 都不需要（实测：拷到全新目录后
+> 直接启动，`/api/health` 正常、首页 200、哈希产物 196KB immutable 命中）。
+> 该脚本会依次做：运行时体检 → 前端产物检查（缺了才构建）→ 建 `data\` →
+> 探测服务端实例目录（认 `server.properties` / `run.bat`）→ 可选注册计划任务 → 启动并健康检查。
+
+```powershell
+# 双击等价命令（幂等，可反复跑，不会覆盖已有 data\settings.json 与密码）
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy.ps1 -Root 'G:\服务端\NeoForge' -RegisterTask
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy.ps1 -CheckOnly   # 只体检
+```
+
+下面是三种取代码的方式：
 
 ### 方式 A：`git clone`（推荐，升级最方便）
 ```powershell
@@ -289,16 +304,73 @@ node test\sampler-check.mjs (Get-Process java).Id 5   # 采样器取数字段齐
 
 ## 阶段 8 · 日常运维
 
-### 8.1 升级面板
+### 8.1 升级面板（**用脚本，别手工**）
+
 ```powershell
-Stop-ScheduledTask -TaskName 'MCSLite-Panel'
-cd G:\MCSLite
-git pull                                    # 方式 A
-powershell -NoProfile -File scripts\start.ps1 -CheckOnly    # 体检
-cd web; npm install; npm run build; cd ..   # 前端有改动时才需要
-Start-ScheduledTask -TaskName 'MCSLite-Panel'
+# 推荐：双击根目录「更新面板.bat」，或命令行
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\update.ps1 -Test
 ```
-`data\` 与游戏世界完全不受影响。面板配置向后兼容（缺字段自动补默认值）。
+
+`update.ps1` 的五步，每一步都不碰你的游戏世界：
+
+| 步 | 动作 | 关键保障 |
+|---|---|---|
+| 1 | 备份**当前代码 + data\** 到 `.rollback\<时间戳>\` | 只保留最近 5 个快照，不会越攒越大 |
+| 2 | 可选 `-StopServer`：通过面板 API 优雅停服（会存档） | 不给就明确警告"面板会重启，java 会脱离管理" |
+| 3 | 取新代码：`git pull --ff-only`，或 `-From <解压目录>` 用 robocopy 镜像替换 | 替换时 `/XD data .git .rollback node_modules` —— **数据目录结构上不可能被覆盖** |
+| 4 | 校验交付脚本编码不变量（`.ps1` 必须仍是 UTF-8 BOM + CRLF），可选跑 42 单测 / 44 端到端 | 编码守护不通过会**自动修**而不是留个坏脚本 |
+| 5 | 重启面板并轮询 `/api/health`；**20 秒内不健康就自动回滚第 1 步的代码** | 不会留下"更新到一半起不来"的砖 |
+
+常用组合：
+
+```powershell
+# 只更新代码、跑单测、重启（游戏不掉线，但更新后需重新点「启动」接管）
+update.ps1 -Test
+
+# 更新前先优雅停服（最干净，玩家会被请下线）
+update.ps1 -Test -StopServer
+
+# 不能用 git（网络被阻断）：下载 GitHub ZIP 解压后本地替换
+update.ps1 -From 'G:\dl\mcslite-main' -Test
+
+# 只体检不装
+update.ps1 -NoRestart
+
+# 更新出问题了，退回上一个快照
+update.ps1 -Rollback
+```
+
+### 关于"更新会不会影响我的服务器/世界"
+
+不会。三层隔离：
+1. **代码与数据物理分离**：可执行文件全在 `server\`、`web\`、`scripts\`，状态全在 `data\`；
+   更新用 `robocopy /XD data` 镜像，结构上就覆盖不到。
+2. **面板与游戏进程解耦**（`stopOnExit` 默认 false）：更新面板不会把 java 一起带走。
+3. **Java/Minecraft 实例目录只被"沙箱内的文件 API"访问**，更新流程完全不碰它。
+
+唯一的真实副作用：**面板重启后会失去对当前 java 进程的 stdin 句柄**，
+于是那一刻 UI 显示"已停止"而游戏其实还在跑。三种应对：
+
+| 做法 | 适用 |
+|---|---|
+| `update.ps1 -StopServer`（先优雅停服再更新） | 最干净，推荐给在意存档完整性的场合 |
+| 更新后在仪表盘点「启动」重新拉起 | 玩家会经历一次掉线→重连 |
+| 打开「面板退出时一并停止服务端」 | 让"面板停 = 服务停"成为恒定语义，不留孤儿 java |
+
+> 长期正解是启动时"认领"已存在的 java 进程（按命令行匹配实例目录，标记为外部接管、
+> 只能监控与强杀）。面板当前未实现，理由见 `docs/WINDOWS-SERVER-2016.md` 第 10 条。
+
+### 8.1.1 手工升级（不用脚本时的等价步骤）
+
+```powershell
+Stop-ScheduledTask -TaskName 'MCSLite-Panel'          # 或结束面板进程（注意：只结束自己的 PID）
+Copy-Item data "D:\bak\data-$(Get-Date -f yyyyMMdd-HHmmss)" -Recurse   # 先备份数据
+# git pull 或用新版本目录覆盖 server\ web\ scripts\ docs\（保留 data\）
+powershell -NoProfile -File scripts\start.ps1 -CheckOnly                # 体检
+Start-ScheduledTask -TaskName 'MCSLite-Panel'
+curl.exe -s http://127.0.0.1:8787/api/health                            # 验证
+```
+
 
 ### 8.2 回滚
 ```powershell

@@ -325,7 +325,13 @@ function register(app, ctx) {
   });
 
   // ————————————————— 健康检查（Nginx / 监控探针用，免鉴权） —————————————————
-  app.get('/api/health', (c) => c.json(200, { ok: true, state: proc.state, uptime: Math.round(process.uptime()), rss: process.memoryUsage.rss() }), { auth: false, csrf: false });
+  // 带 pid + data 身份字段：更新脚本靠它判断「回答我的确实是我刚拉起的那个实例」。
+  // 否则同机跑两份面板时（比如测试副本），健康检查会被另一个实例冒领，
+  // 导致「不健康就自动回滚」在最需要的时候不触发 —— 实测踩过。
+  app.get('/api/health', (c) => c.json(200, {
+    ok: true, state: proc.state, uptime: Math.round(process.uptime()), rss: process.memoryUsage.rss(),
+    pid: process.pid, data: require('../lib/paths').DATA, panel: meta.version, sea: meta.sea,
+  }), { auth: false, csrf: false });
 }
 
 function _needsRestart(keys) {

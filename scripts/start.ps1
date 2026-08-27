@@ -106,12 +106,18 @@ Write-Line "启动面板：http://127.0.0.1:$effPort/ （堆上限 ${HeapMB}MB�
 
 while ($true) {
   $t0 = Get-Date
+  # 关键：node 的 stderr 是正常输出通道（面板的 console.error 都走那儿）。
+  # 外层 $ErrorActionPreference='Stop' 会把 stderr 行判成 NativeCommandError 并终止脚本 ——
+  # 于是"面板出错"恰好导致"看门狗一起死掉"，自动重启形同虚设。这一段单独放宽。
+  $prevEAP = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
   & node --max-old-space-size=$HeapMB $ENTRY 2>&1 | ForEach-Object {
     $line = "$_"
     Write-Host $line
-    Add-Content -LiteralPath $LOG -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $line" -Encoding UTF8
+    try { Add-Content -LiteralPath $LOG -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $line" -Encoding UTF8 -ErrorAction SilentlyContinue } catch { }
   }
   $code = $LASTEXITCODE
+  $ErrorActionPreference = $prevEAP
   $ran = ((Get-Date) - $t0).TotalSeconds
   if ($code -eq 0) { Write-Line '面板正常退出' 'Green'; break }
   # 存活超过 3 分钟说明不是启动即崩，退避计数归零

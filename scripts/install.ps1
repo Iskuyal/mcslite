@@ -58,9 +58,20 @@ else {
   }
 }
 if ($foundJava) {
-  $ver = (& "$foundJava" -version 2>&1 | Select-Object -First 1)
+  # java -version 输出走 stderr；$ErrorActionPreference='Stop' 下会被判成终止错误打断脚本
+  $prevEAP = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  $verRaw = (& "$foundJava" -version 2>&1 | Out-String)
+  $ErrorActionPreference = $prevEAP
+  $ver = (($verRaw -split "`n") | Select-Object -First 1)
+  $maj = 0
+  $m = [regex]::Match($verRaw, 'version\s+"(\d+)(?:\.(\d+))?')
+  if ($m.Success) { $maj = [int]$m.Groups[1].Value; if ($maj -eq 1 -and $m.Groups[2].Success) { $maj = [int]$m.Groups[2].Value } }
   Out-Ok "Java：$foundJava"
   Out-Step "$ver"
+  if ($maj -gt 0 -and $maj -lt 17) {
+    Out-Warn "PATH 上的 java 是 $maj，而 MC 1.18+ 需 Java 17+、1.20.5+ 需 21+；面板里请填高版本 JDK 的绝对路径（deploy.ps1 会自动挑版本最高的候选）"
+  }
 } else { Out-Warn '未自动找到 java.exe —— 登录面板后在「设置 → 服务端」手动填写绝对路径' }
 
 # ——— 3. 目录骨架 ———

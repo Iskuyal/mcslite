@@ -88,7 +88,7 @@ async function apiOrNull(method, path, body) {
       // SHA 不同不代表内容不同：API 重建 commit 对象时会归一化字节，导致同一个 tree 得到不同 commit SHA。
       // 真正的判据是 tree —— 本地父的 tree == 远端 HEAD 的 tree，就是内容等价，可安全快进。
       const localParentTree = git('rev-parse', localParent + '^{tree}');
-      const remoteCommit = await api(`${repo}/git/commits/${remoteSha}`);
+      const remoteCommit = await apiOrNull('GET', `${repo}/git/commits/${remoteSha}`);
       if (remoteCommit.tree && remoteCommit.tree.sha === localParentTree) {
         console.log(`远端 ${BRANCH} 的 SHA 与本地父不同，但 tree 等价（${localParentTree.slice(0, 8)}）→ 按快进处理`);
       } else {

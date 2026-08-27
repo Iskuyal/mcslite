@@ -12,7 +12,15 @@ const path = require('node:path');
 
 const ROOT = path.resolve(__dirname, '..');
 const check = process.argv.includes('--check');
-const TARGETS = [['scripts/start.ps1', 'ps1'], ['scripts/install.ps1', 'ps1'], ['scripts/start.bat', 'bat']];
+const TARGETS = [
+  ['scripts/start.ps1', 'ps1'],
+  ['scripts/install.ps1', 'ps1'],
+  ['scripts/deploy.ps1', 'ps1'],
+  ['scripts/update.ps1', 'ps1'],
+  ['scripts/start.bat', 'bat'],
+  ['启动面板.bat', 'bat'],
+  ['更新面板.bat', 'bat'],
+];
 const BOM = '\uFEFF';
 let changed = 0, bad = 0;
 

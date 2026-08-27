@@ -18,6 +18,25 @@
 > 📘 **完整上线流程（含开机自启、Nginx+HTTPS、防火墙、验收清单、备份回滚、故障排查表）见
 > [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)**。下面只是最简路径。
 
+### 最简路径：拷目录 → 双击
+
+```
+1) 把整个 MCSLite\ 文件夹拷到目标机（web\dist 已随仓库分发，无需 npm install）
+2) 双击根目录的「启动面板.bat」      ← 自动体检、建 data\、探测实例目录、启动
+3) 浏览器开 http://127.0.0.1:8787/ ，用控制台打印的初始密码登录，立刻改密
+```
+
+后续更新：**双击「更新面板.bat」**（自动备份 data 与代码 → 替换代码 → 健康检查 → 失败自动回滚）。
+
+命令行等价写法：
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy.ps1 -Root 'G:\服务端\NeoForge'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deploy.ps1 -RegisterTask   # 开机自启
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\update.ps1 -Test           # 更新
+```
+
+### 手动路径（想自己控制每一步）
+
 ```powershell
 # 1) 自检 + 建目录（可选 -BuildWeb 顺带构建前端）
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install.ps1 -BuildWeb

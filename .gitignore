@@ -15,6 +15,9 @@ test/.tmp-data/
 test/.tmp-data2/
 test/.tmp-instance/
 test/.sampler-check.ps1
+
+# 更新脚本的代码/数据快照（回滚点，含配置副本，不外传）
+.rollback/
 *.log
 *.tmp
 
