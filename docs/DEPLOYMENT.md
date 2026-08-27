@@ -369,3 +369,56 @@ Remove-Item -Recurse -Force G:\MCSLite\data\logs      # 需要清日志的话
 - **WMI 用 CIM 英文类名而非 `Get-Counter`**：计数器路径会被系统语言本地化 → 坑点第 7 条。
 - **`.ps1` 带 UTF-8 BOM**：PowerShell 5.1 无 BOM 时按 GBK 解码，会静默吃掉代码 → 坑点第 2 条。
 - **面板与游戏进程解耦**（`stopOnExit` 默认 false）：升级面板不应该踢玩家。
+
+---
+
+## 附录 C · git push 被网络阻断时怎么办
+
+本仓库首次上传就遇到了：`gh`（走 `api.github.com`）建仓库成功，但 `git push`（走 `github.com`
+的 git 协议通道）连续报 `Recv failure: Connection was reset` / `Failure when receiving data from the peer`。
+
+按成本从低到高：
+
+```powershell
+# 1) 换 HTTP/1.1 与小包重试（对某些中间设备有效）
+git -c http.version=HTTP/1.1 -c http.postBuffer=524288 push -u origin main
+
+# 2) 有代理就显式给 git 用
+git config --global http.proxy http://127.0.0.1:7890
+git config --global https.proxy http://127.0.0.1:7890
+
+# 3) 走 SSH over 443（需已在 GitHub 添加过公钥）
+#    ~/.ssh/config:  Host github.com
+#                      HostName ssh.github.com
+#                      Port 443
+#                      User git
+#    然后把 remote 改成 git@github.com:Iskuyal/mcslite.git
+
+# 4) 兜底：直接用 GitHub Objects API 把本地提交推上去（本项目自带，实测可用）
+node scripts\gh-push-api.mjs --owner Iskuyal --repo mcslite --branch main
+node scripts\gh-verify.mjs          # 从远端读回来逐文件比对 blob SHA
+```
+
+第 4 步的原理与边界：
+- 内容取自 `git cat-file`（**索引规范化后的字节**），所以推上去的 blob 与本地仓库完全一致；
+  脚本最后比对 **tree SHA**，不同就中止，绝不留下一个"看起来推上去了"的错误提交。
+- 一次性提交（`parents: []`）适合根提交；若远端已有历史，需要先把远端 sha 填进 parents，
+  否则会创建孤儿提交 —— 这也是脚本默认在远端已有不同提交时**拒绝执行**（除非 `--no-empty-guard`）的原因。
+- 文本文件走 `trees` 的 `content` 内联（一次 API 调用），含 NUL 或非 UTF-8 的文件自动退回
+  `blobs` 的 base64 通道，所以二进制也不会被损坏。
+- 它绕不过去的是 **git 协议本身**，所以克隆（`git clone`）仍需要 1–3 中某条通道能用；
+  实在不行就在目标机用「下载 ZIP」或方式 B（拷目录）部署。
+
+> 顺带一条同源经验：**测量工具坏掉时不要相信它的结论**。第一次我用
+> `gh api --jq '.tree[] | select(.type=="blob")'` 核验，PowerShell 把引号与 `==` 吞了，
+> jq 报错却只输出一行，看上去像"远端只有 1 个文件"。换成 Node 脚本拉完整 tree 做集合比对，
+> 才拿到真实结论（60/60，SHA 全等）。
+
+## 附录 D · 文档索引
+
+| 文件 | 内容 |
+|---|---|
+| `README.md` | 选型理由、目录结构、功能实现要点、API 一览、内存实测表 |
+| `docs/DEPLOYMENT.md` | 本文件：从零到上线、自启、反代、验收、备份回滚、排障 |
+| `docs/WINDOWS-SERVER-2016.md` | 12 条 Windows 坑点（区分「已实测」与「待真机复验」） |
+| `docs/MEMORY.md` | 内存口径、预算分解、有界三件套、按需负载、可调旋钮 |
