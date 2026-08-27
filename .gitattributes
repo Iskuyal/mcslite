@@ -1,0 +1,29 @@
+# 行尾策略显式固定，不依赖各机器的 core.autocrlf —— 这个项目踩过编码/换行的坑：
+# PowerShell 5.1 读无 BOM 的 UTF-8 .ps1 会按 GBK 解码并可能吞掉换行（见 docs/WINDOWS-SERVER-2016.md 第 2 条），
+# cmd.exe 对 .bat 的行尾与码页同样敏感。所以这两类文件必须钉成 CRLF。
+* text=auto
+
+*.ps1  text eol=crlf
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+*.js   text eol=lf
+*.mjs  text eol=lf
+*.cjs  text eol=lf
+*.vue  text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+*.css  text eol=lf
+*.html text eol=lf
+*.conf text eol=lf
+
+# 构建产物不再做行尾转换（哈希文件名与内容都是机器生成，改写只会白白破坏缓存）
+web/dist/** -text
+
+# 二进制
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff2 binary
+*.gz binary
+*.zip binary

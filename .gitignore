@@ -1,0 +1,29 @@
+# 依赖与构建产物
+.git/
+node_modules/
+web/node_modules/
+build/
+
+# 运行期数据（含口令散列与签名密钥，绝不入库）
+# 注意用 data/* 而非 data/ —— 目录被忽略时 !data/.gitkeep 不会生效
+data/*
+!data/.gitkeep
+!data/README.md
+
+# 测试暂存
+test/.tmp-data/
+test/.tmp-data2/
+test/.tmp-instance/
+test/.sampler-check.ps1
+*.log
+*.tmp
+
+# Minecraft 实例本体（放在仓库里等于把整个世界提交上去）
+instance/
+world/
+libraries/
+mods/
+logs/
+
+.DS_Store
+Thumbs.db

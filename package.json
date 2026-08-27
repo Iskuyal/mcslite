@@ -1,0 +1,23 @@
+{
+  "name": "mcslite",
+  "version": "1.0.0",
+  "private": true,
+  "description": "极简轻量 Minecraft 网页管理面板（单实例 / Windows / 后端零依赖）",
+  "main": "server/index.js",
+  "bin": {
+    "mcslite": "server/index.js"
+  },
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "start:lowmem": "node --max-old-space-size=96 --expose-gc server/index.js",
+    "build:web": "cd web && npm run build",
+    "test": "node test/run.js",
+    "sea": "node scripts/sea-build.js"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

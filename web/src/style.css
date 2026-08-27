@@ -1,0 +1,75 @@
+@import "tailwindcss";
+
+/* ————————————————— 全局：低饱和深色，长时间盯着不累 ————————————————— */
+:root {
+  --bg: #0b0f14; --panel: #121820; --panel2: #171f29; --line: #223041;
+  --fg: #c9d4e0; --dim: #7d8b9c; --ok: #3fb950; --warn: #d29922; --err: #f85149; --acc: #4ea1ff;
+  color-scheme: dark;
+}
+html, body, #app { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 14px/1.65 system-ui, "Segoe UI", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  -webkit-font-smoothing: antialiased; overflow: hidden;
+}
+* { scrollbar-width: thin; scrollbar-color: #2a3849 transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb { background: #2a3849; border-radius: 6px; }
+button { font: inherit; }
+
+.mono { font-family: ui-monospace, "Cascadia Mono", Consolas, "Sarasa Mono SC", monospace; font-variant-ligatures: none; }
+
+/* ————————————————— 控制台 ANSI 调色板（对应 server/lib/ansi.js 的 class） ————————————————— */
+.term { font-family: ui-monospace, "Cascadia Mono", Consolas, "Sarasa Mono SC", monospace; font-size: 12.5px; line-height: 1.5; }
+.term .line { white-space: pre-wrap; word-break: break-word; content-visibility: auto; contain-intrinsic-size: auto 19px; padding: 0 2px; border-radius: 3px; }
+.term .line:hover { background: #17202b; }
+.term .ts { color: #56687d; user-select: none; margin-right: .5em; }
+.c { font-weight: 400; }
+.fk{color:#6e7681}.fr{color:#f85149}.fg{color:#3fb950}.fy{color:#d29922}.fb{color:#58a6ff}.fm{color:#bc8cff}.fc{color:#39c5cf}.fw{color:#adbac7}
+.fK{color:#768390}.fR{color:#ff7b72}.fG{color:#7ee787}.fY{color:#e3b341}.fB{color:#79c0ff}.fM{color:#d2a8ff}.fC{color:#56d4dd}.fW{color:#e6edf3}
+/* 背景色 class 由 ansi.js 以 `b`+键 生成（绿色即 .bg），名称必须逐一对应 */
+span.bk{background:#6e7681}span.br{background:#f85149}span.bg{background:#3fb950}span.by{background:#d29922}span.bb{background:#58a6ff}span.bm{background:#bc8cff}span.bc{background:#39c5cf}span.bw{background:#adbac7}
+span.bK{background:#768390}span.bR{background:#ff7b72}span.bG{background:#7ee787}span.bY{background:#e3b341}span.bB{background:#79c0ff}span.bM{background:#d2a8ff}span.bC{background:#56d4dd}span.bW{background:#e6edf3}
+.bold{font-weight:700}.dim{opacity:.55}.italic{font-style:italic}.underline{text-decoration:underline}.strike{text-decoration:line-through}.obf{filter:blur(3px)}
+.inverse{filter:invert(1)}
+.lv-error .line{background:rgba(248,81,73,.09);box-shadow:inset 2px 0 0 var(--err)}
+.lv-warn .line{box-shadow:inset 2px 0 0 var(--warn)}
+.lv-sys .line{color:#8b949e;font-style:italic}
+.lv-cmd .line{color:#e3b341;font-weight:600}
+.lv-debug .line,.lv-trace .line{opacity:.5}
+
+/* ————————————————— 通用控件 ————————————————— */
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+.btn { display:inline-flex; align-items:center; gap:.4rem; padding:.42rem .8rem; border-radius:7px; border:1px solid var(--line); background:var(--panel2); color:var(--fg); cursor:pointer; transition:.12s; white-space:nowrap; }
+.btn:hover:not(:disabled){ border-color:#31465c; background:#1c2531 }
+.btn:disabled{ opacity:.42; cursor:not-allowed }
+.btn-primary{ background:#1f6feb; border-color:#2c7bf2; color:#fff }
+.btn-primary:hover:not(:disabled){ background:#2b7cff }
+.btn-danger{ background:#a0211d; border-color:#c0342f; color:#fff }
+.btn-danger:hover:not(:disabled){ background:#c0342f }
+.btn-warn{ background:#7a5310; border-color:#96691a; color:#ffe1a8 }
+.btn-ghost{ background:transparent }
+.btn-sm{ padding:.2rem .5rem; font-size:12px }
+.input, select.input, textarea.input { background:#0e141b; border:1px solid var(--line); color:var(--fg); border-radius:7px; padding:.4rem .6rem; outline:none; font:inherit; }
+.input:focus{ border-color:#316ca8; box-shadow:0 0 0 2px rgba(78,161,255,.14) }
+.badge{ display:inline-flex; align-items:center; gap:.3rem; padding:.1rem .5rem; border-radius:999px; font-size:11.5px; border:1px solid var(--line) }
+.dot{ width:8px;height:8px;border-radius:50%;display:inline-block }
+.dot-on{ background:var(--ok); box-shadow:0 0 8px var(--ok) }
+.dot-off{ background:#4a5666 }
+.dot-start{ background:var(--warn); animation:pulse 1s infinite }
+.dot-stop{ background:#a371f7; animation:pulse 1s infinite }
+@keyframes pulse{ 50%{ opacity:.35 } }
+.tab{ padding:.45rem .85rem; border-radius:8px 8px 0 0; border:1px solid transparent; border-bottom:none; color:var(--dim); cursor:pointer; font-size:13.5px }
+.tab:hover{ color:var(--fg) }
+.tab-active{ background:var(--panel); border-color:var(--line); color:var(--fg); font-weight:600 }
+.kv{ display:flex; justify-content:space-between; gap:1rem; padding:.24rem 0; border-bottom:1px dashed #1b2532; font-size:12.5px }
+.kv:last-child{ border-bottom:none }
+.kv b{ font-weight:600 }
+table.grid{ width:100%; border-collapse:collapse; font-size:12.5px }
+table.grid th{ text-align:left; color:var(--dim); font-weight:500; padding:.35rem .5rem; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--panel) }
+table.grid td{ padding:.32rem .5rem; border-bottom:1px solid #16202b }
+table.grid tr:hover td{ background:#141c26 }
+.uplot { --uplot-grid-line-stroke:#1b2532; --uplot-legend-color:#8b949e; }
+.u-legend { font-size:11px !important; }
+.u-series { font-size:11px !important; }
+::-webkit-selection, ::selection{ background:#1f6feb55 }
