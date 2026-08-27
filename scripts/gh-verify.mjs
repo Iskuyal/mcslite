@@ -25,10 +25,14 @@ async function api(path) {
   return r.json();
 }
 
-/** 本地：递归列出 commit 里所有 blob（mode sha path），并对嵌套 tree 展开 */
+/** 本地：递归列出 commit 里所有 blob（mode sha path）。
+ *  必须关掉 core.quotepath —— 否则 git 把中文路径转义成 "\345\220…"，
+ *  而 API 返回真实 UTF-8 名，集合比对会出现「本地独有 "\345…"」这种假阳性。
+ *  （tree SHA 全等本身已足以证明文件集合一致：tree 哈希覆盖文件名与内容。） */
 function localBlobs() {
   const out = [];
-  for (const line of git('ls-tree', '-r', 'HEAD').split('\n').filter(Boolean)) {
+  const raw = execFileSync('git', ['-c', 'core.quotepath=false', 'ls-tree', '-r', 'HEAD'], { encoding: 'utf8', maxBuffer: 1 << 26 });
+  for (const line of raw.split('\n').filter(Boolean)) {
     const [mode, type, sha, ...rest] = line.split(/\s+/);
     if (type === 'blob') out.push({ mode, sha, path: rest.join(' ') });
   }
