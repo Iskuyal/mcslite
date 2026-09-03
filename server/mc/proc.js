@@ -29,6 +29,36 @@ const { LOGS } = require('../lib/paths');
 
 const PARTIAL_CAP = 64 * 1024;   // 单行未收口的上限，防无换行输出把堆撑爆
 const LINE_MAX = 8 * 1024;       // 单行长度上限（崩溃报告里的超长堆栈截断即可）
+const LINE_BATCH = 2000;         // 一次事件循环最多切这么多行；超出就让出循环继续切（绝不合并）
+const PROBE_EVERY_MS = 3000;     // 「还在启动」时对服务端日志文件的兜底轮询间隔
+const PROBE_MAX_MS = 30 * 60 * 1000;
+const PROBE_WINDOW = 64 * 1024;  // 兜底轮询每次最多回看的字节数
+
+/** 面板注入给 java 的 JVM 选项（java 会把它回显成一行 Picked up 噪声，见下） */
+const INJECTED_JVM_OPTS = '-Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8';
+/** java 自己打印的「我收到了环境变量」回显行 —— bat 启动时不存在，属面板造成的差异 */
+const PICKED_UP_RE = /^Picked up (?:JAVA_TOOL_OPTIONS|JDK_JAVA_OPTIONS|_JAVA_OPTIONS|JAVA_OPTS):/i;
+
+/**
+ * 「启动完成」标记。样本全部来自真实服务端：
+ *   vanilla/Forge/NeoForge: Done (13.206s)! For help, type "help"
+ *   部分核心本地化分支把括号/秒数改了形；Bukkit 系另有一句 Start finished
+ * 匹配前一律先 stripAnsi —— 带色服务端的 \x1b 会插在词中间，不剥就永远匹配不上。
+ */
+const ONLINE_MARKS = [
+  /Done[ (（]*\(\s*\d+(?:[.,]\d+)?\s*s?\s*[)）]\s*!?\s*For help/i,
+  /Done[^\n"]{0,32}type\s+["']?help/i,
+  /Done\s*[（(]\s*[\d.,]+\s*(?:s|秒)?\s*[)）]/i,
+  /Start finished/i,
+];
+function looksStarted(line) {
+  if (!line) return false;
+  // 先做两次 indexOf 廉价排除，别对每一行日志都跑 4 个正则
+  if (line.indexOf('one') < 0 && line.indexOf('inished') < 0) return false;
+  const t = stripAnsi(line);
+  for (const re of ONLINE_MARKS) if (re.test(t)) return true;
+  return false;
+}
 
 const STATE = { OFFLINE: 'offline', STARTING: 'starting', ONLINE: 'online', STOPPING: 'stopping' };
 
@@ -41,8 +71,10 @@ class MinecraftProcess extends EventEmitter {
     this.startedAt = 0;
     this.exitInfo = null;
     this.ring = new Ring(config.get().server.maxLines);
-    this.decoder = null;
-    this.partial = '';
+    this.decoder = null;                 // stdout 解码器（两条流各自一条，绝不共用）
+    this.decoderErr = null;              // stderr 解码器
+    this.partialOut = '';                // stdout 未收口的半行
+    this.partialErr = '';                // stderr 未收口的半行
     this.partialBytes = 0;
     this.seq = 0;
     this.intentionalStop = false;
@@ -51,6 +83,8 @@ class MinecraftProcess extends EventEmitter {
     this.players = new Set();          // 日志解析降级用的在线玩家集合
     this.lineSink = null;              // 面板侧日志落盘
     this.lastErrorTail = '';
+    this._probe = null;                // 「卡在启动中」的兜底轮询状态
+    this._probeTimer = null;
   }
 
   /** 环形缓冲按配置重建（改 maxLines 后调用） */
@@ -126,11 +160,17 @@ class MinecraftProcess extends EventEmitter {
     this.exitInfo = null;
     this.intentionalStop = false;
     this.decoder = new StreamDecoder(cfg.consoleEncoding);
-    this.partial = '';
+    this.decoderErr = new StreamDecoder(cfg.consoleEncoding);
+    this.partialOut = '';
+    this.partialErr = '';
     this.partialBytes = 0;
     this._attachStdio(child, root);
     this._openSink();
     this._pushLine(`<panel> 启动：${file} ${args.join(' ')}`.trim(), { sys: true, level: 'sys' });
+    // java 收到 JAVA_TOOL_OPTIONS 会回显一行 Picked up…（bat 启动时没有这行）。面板把那句
+    // 回显折叠掉，改成启动时这一条说明 —— 不隐瞒注入，也不让它混进服务端正文。
+    this._pushLine(`<panel> 注入 JAVA_TOOL_OPTIONS=${INJECTED_JVM_OPTS}（java 的 Picked up 回显行已折叠，不计入服务端日志）`, { sys: true, level: 'sys' });
+    this._armStartProbe(root, cfg);
     this._emit('status', this.status());
 
     child.on('error', (e) => {
@@ -143,73 +183,105 @@ class MinecraftProcess extends EventEmitter {
   }
 
   _attachStdio(child, root) {
-    const onData = (buf) => {
+    // stdout / stderr 各自一条解码器 + 一条半行缓冲：
+    // 两条管道交替到达，共用缓冲会把「stderr 的前半句」和「stdout 的后半句」焊成一行，
+    // 这正是面板日志与服务端控制台正文对不上的原因之一（实测 Java 25 的 Unsafe 警告就被切断）。
+    const feed = (isErr, buf) => {
+      const dec = isErr ? this.decoderErr : this.decoder;
       let text;
-      try { text = this.decoder.push(buf); } catch { text = buf.toString('utf8'); }
-      if (!text) return;
+      try { text = dec ? dec.push(buf) : buf.toString('utf8'); } catch { text = buf.toString('utf8'); }
       this.partialBytes += buf.length;
-      let s = this.partial + text;
-      let nl;
-      let count = 0;
-      while ((nl = s.indexOf('\n')) >= 0) {
-        let line = s.slice(0, nl);
-        s = s.slice(nl + 1);
-        if (line.endsWith('\r')) line = line.slice(0, -1);
-        this._pushLine(line);
-        if (++count >= 400) {                     // 单块过多行：剩余直接聚合，防事件风暴
-          if (s) { this._pushLine(s); s = ''; }
-          break;
-        }
-      }
-      this.partial = s;
-      if (this.partial.length > PARTIAL_CAP) {    // 长期无换行 → 强制收口，保内存
-        this._pushLine(this.partial.slice(0, LINE_MAX) + ' …[截断]');
-        this.partial = '';
-      }
+      if (!text) { this._drain(isErr); return; }
+      if (isErr) this.partialErr += text; else this.partialOut += text;
+      this._drain(isErr);
     };
-    child.stdout.on('data', onData);
-    child.stderr.on('data', (b) => {
-      // 老写法 stderr 会绕过统一缓冲；这里显式合并，保证 UI 上「所有输出可见」
-      const tag = Buffer.from('[stderr] ');
-      onData(Buffer.concat([tag, b]));
-    });
-    child.stdout.on('end', () => { const t = this.decoder.end(); if (t) this._pushLine(t); });
+    child.stdout.on('data', (b) => feed(false, b));
+    child.stderr.on('data', (b) => feed(true, b));
+    const finish = (isErr) => {
+      const dec = isErr ? this.decoderErr : this.decoder;
+      let t = '';
+      try { t = dec ? dec.end() : ''; } catch { /* 已收尾 */ }
+      if (t) { if (isErr) this.partialErr += t; else this.partialOut += t; }
+      this._drain(isErr);
+    };
+    child.stdout.on('end', () => finish(false));
+    child.stderr.on('end', () => finish(true));
+  }
+
+  /** 把缓冲里的完整行逐条推出去；一次太多就让出事件循环接着切，绝不把剩余合并成一行 */
+  _drain(isErr) {
+    let s = isErr ? this.partialErr : this.partialOut;
+    const src = isErr ? 'stderr' : 'stdout';
+    let nl;
+    let count = 0;
+    while ((nl = s.indexOf('\n')) >= 0) {
+      let line = s.slice(0, nl);
+      s = s.slice(nl + 1);
+      if (line.endsWith('\r')) line = line.slice(0, -1);
+      this._pushLine(line, { src });
+      if (++count >= LINE_BATCH) {
+        if (isErr) this.partialErr = s; else this.partialOut = s;
+        setImmediate(() => this._drain(isErr));           // 剩余留在缓冲里排队，顺序不变
+        return;
+      }
+    }
+    if (isErr) this.partialErr = s; else this.partialOut = s;
+    if (s.length > PARTIAL_CAP) {                        // 长期无换行 → 强制收口，保内存
+      this._pushLine(s.slice(0, LINE_MAX) + ' …[截断]', { src });
+      if (isErr) this.partialErr = ''; else this.partialOut = '';
+    }
+  }
+
+  /** 进程收尾：把两条流各自残留的半行吐干净（否则最后一行会静默消失） */
+  _flushPartials() {
+    for (const isErr of [false, true]) {
+      const key = isErr ? 'partialErr' : 'partialOut';
+      const rest = this[key];
+      if (rest) {
+        this[key] = '';
+        this._pushLine(rest.replace(/\r/g, ''), { src: isErr ? 'stderr' : 'stdout' });
+      }
+    }
   }
 
   /** 一行日志的完整管线：环形缓冲 + 事件广播 + 落盘 + 状态/玩家解析 */
   _pushLine(raw, meta = {}) {
     if (raw === undefined || raw === null) return;
     const stripped = stripPrefix(raw);
-    const clean = (stripped ? stripped.rest : raw).replace(/\0/g, '');
+    // java 对面板注入的 JAVA_TOOL_OPTIONS 的回显：不是服务端输出，折叠掉（启动时已用一条
+    // <panel> 行说明过，做到不隐瞒；bat 启动没有这行，留着就成了面板特有的噪声）
+    if (!meta.sys && PICKED_UP_RE.test(stripAnsi((stripped && stripped.rest) || raw))) return;
+    // 正文一字不动：前缀 [时间] [线程/级别] [logger/] 只用于抽 time/level 元数据。
+    // 旧实现在这里把前缀从文本里删掉，于是「面板显示的日志」天然比 bat 控制台的少一截，
+    // 排查时对不上号 —— 抽元数据和改正文是两件事，不能混着做。
+    const clean = String(raw).replace(/\0/g, '');
     const time = stripped ? stripped.time : new Date().toTimeString().slice(0, 8);
-    // 级别优先取 MC 前缀里的 [thread/LEVEL]（否则剥掉前缀后再 detectLevel 就永远看不到 INFO/WARN 了）
+    // 级别优先取显式 meta，再取 MC 前缀里的 [thread/LEVEL]，最后兜底正文关键字
     const level = meta.level || (stripped && stripped.level ? stripped.level.toLowerCase() : null) || detectLevel(clean) || null;
+    const body = clean.length > LINE_MAX ? clean.slice(0, LINE_MAX) + ' …[截断]' : clean;
     const item = {
       i: ++this.seq,
-      t: meta.sys ? Date.now() : (this.startedAt ? Date.now() : Date.now()),
+      t: Date.now(),
       time,
       level,
-      raw: clean.length > LINE_MAX ? clean.slice(0, LINE_MAX) + ' …[截断]' : clean,
-      html: ansiToHtml(clean.length > LINE_MAX ? clean.slice(0, LINE_MAX) + ' …[截断]' : clean),
+      src: meta.sys ? 'panel' : (meta.src || 'stdout'),   // 流来源：文本里不再插 [stderr] 标记
+      raw: body,
+      html: ansiToHtml(body),
     };
     this.ring.push(item);
     this._emit('line', item);
     if (this.lineSink) {
-      try { this.lineSink.write(new Date().toISOString().slice(11, 23) + ' ' + item.raw.replace(/[\r\n]+/g, ' ') + '\n'); }
+      try { this.lineSink.write(localStamp() + ' ' + item.raw.replace(/[\r\n]+/g, ' ') + '\n'); }
       catch { this._closeSink(); }
     }
-    this._track(raw, clean, level);
+    this._track(clean, level);
     return item;
   }
 
   /** 从日志推断运行状态与在线玩家（无 RCON 时的降级通道） */
-  _track(raw, clean, level) {
+  _track(clean) {
     const c = clean;
-    if (this.state === STATE.STARTING && /(Done \(\d+(\.\d+)?s\)! For help|Done.*type "help"|Done \(Service|§[0-9a-f]Done|Start finished|Done\(For help)/i.test(c)) {
-      this.state = STATE.ONLINE;
-      this.crashStreak = 0;
-      this._emit('status', this.status());
-    }
+    if (this.state === STATE.STARTING && looksStarted(c)) this._markOnline();
     // 解析名字前必须剥掉 ANSI —— 带色服务端日志形如 "\x1b[32mSteve[/1.2.3.4:5] logged in"
     const p = stripAnsi(c);
     if (/\bleft the game\b|\blost connection\b|\bexceeded keepalive\b|\bKicked /i.test(p)) {
@@ -221,8 +293,67 @@ class MinecraftProcess extends EventEmitter {
       if (n) { this.players.add(n); this._emit('players', { players: [...this.players], source: 'log', who: n, ev: 'join' }); }
     }
     if (/\bStopping server\b|\bStops the game and saves the players\b/i.test(c)) {
-      if (this.state === STATE.ONLINE) { this.state = STATE.STOPPING; this._emit('status', this.status()); }
+      if (this.state === STATE.ONLINE) { this.state = STATE.STOPPING; this._clearStartProbe(); this._emit('status', this.status()); }
     }
+  }
+
+  /** STARTING → ONLINE 的唯一出口 */
+  _markOnline(why) {
+    if (this.state !== STATE.STARTING) return;
+    this.state = STATE.ONLINE;
+    this.crashStreak = 0;
+    this._clearStartProbe();
+    if (why) this._pushLine(`<panel> 未在 stdout 看到启动完成标记，已由 ${why} 判定为运行中`, { sys: true, level: 'sys' });
+    this._emit('status', this.status());
+  }
+
+  // ———————— 「一直显示正在启动」的兜底 ————————
+  /**
+   * stdout 万一没把 Done 送到面板（包装脚本吞了输出、log4j pattern 被改、编码判定失败、
+   * 管道被第三方启动器截走），状态机就会永远停在 starting —— 用户看到的是
+   * 「服务端 logs/latest.log 明明写起来了，面板还在转圈」。这里只读服务端自己写的
+   * 日志文件（settings.server.logFile，默认 logs/latest.log）判定，不重复灌正文。
+   */
+  _armStartProbe(root, cfg) {
+    this._clearStartProbe();
+    const rel = String(cfg.logFile || '');
+    // 与 jarName 同一口径：只接受实例根内的相对路径，别让一个填错的设置把面板指到系统文件上
+    if (!root || !rel || path.isAbsolute(rel) || rel.includes('..')) return;
+    const file = path.join(root, rel);
+    let size = 0;
+    try { size = fs.statSync(file).size; } catch { /* 首启还没有该文件 = 从 0 读 */ }
+    this._probe = { file, since: size, deadline: Date.now() + PROBE_MAX_MS };
+    this._probeTimer = setInterval(() => this._pollLogFile(), PROBE_EVERY_MS);
+    this._probeTimer.unref?.();
+  }
+
+  _pollLogFile() {
+    const p = this._probe;
+    if (!p) return;
+    if (this.state !== STATE.STARTING || Date.now() > p.deadline) { this._clearStartProbe(); return; }
+    let st;
+    try { st = fs.statSync(p.file); } catch { return; }                    // 还没生成
+    if (st.size < p.since) p.since = 0;                                    // 轮转/重建：本次输出从头算
+    if (st.size <= p.since) return;                                        // 启动后还没有新内容
+    const from = Math.max(p.since, st.size - PROBE_WINDOW);
+    const len = Math.min(st.size - from, PROBE_WINDOW);
+    let fd;
+    try { fd = fs.openSync(p.file, 'r'); } catch { return; }
+    let text = '';
+    try {
+      const b = Buffer.allocUnsafe(len);
+      fs.readSync(fd, b, 0, len, from);
+      text = b.toString('utf8');
+    } catch { return; }
+    finally { try { fs.closeSync(fd); } catch { /* ignore */ } }
+    for (const line of text.split(/\r?\n/)) {
+      if (line && looksStarted(line)) { this._markOnline(`${path.basename(path.dirname(p.file))}/${path.basename(p.file)}`); return; }
+    }
+  }
+
+  _clearStartProbe() {
+    if (this._probeTimer) { clearInterval(this._probeTimer); this._probeTimer = null; }
+    this._probe = null;
   }
 
   // —————————————————————— 停止 / 强杀 ——————————————————————
@@ -298,8 +429,8 @@ class MinecraftProcess extends EventEmitter {
   }
 
   _onExit(code, signal, reason, file, args) {
-    const tail = this.decoder ? this.decoder.end() : '';
-    if (tail) this._pushLine(tail);
+    this._clearStartProbe();
+    this._flushPartials();                                 // 两条流各自的最后一行不能丢
     const expected = this.intentionalStop;
     this.child = null;
     this.state = STATE.OFFLINE;
@@ -383,7 +514,7 @@ function _name(line, keywordRe) {
 function buildEnv(cfg) {
   const env = { ...process.env };
   // 强制子进程 stdout/stderr 走 UTF-8（JDK 18+ 生效；JDK 8/11 靠 jvmArgs 的 file.encoding）
-  env.JAVA_TOOL_OPTIONS = (env.JAVA_TOOL_OPTIONS ? env.JAVA_TOOL_OPTIONS + ' ' : '') + '-Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8';
+  env.JAVA_TOOL_OPTIONS = (env.JAVA_TOOL_OPTIONS ? env.JAVA_TOOL_OPTIONS + ' ' : '') + INJECTED_JVM_OPTS;
   env.MC_PANEL = 'mcslite';
   env.FORCE_COLOR = '1';                 // 让服务端保留 ANSI 颜色（否则 JLine 探测到非 TTY 会去色）
   env.TERM = env.TERM || 'xterm-256color';
@@ -403,5 +534,12 @@ function rotateIfNeeded(file, maxBytes, keep) {
 }
 
 function delay(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+/** 面板落盘时间戳用「本地」时间：toISOString() 是 UTC，与游戏日志和控制台显示差一个时区，
+ *  排查问题时两边根本对不齐（「面板日志和 bat 日志不符」的一半来源）。 */
+function localStamp(d = new Date()) {
+  const p = (n, w = 2) => String(n).padStart(w, '0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
+}
 
 module.exports = { MinecraftProcess, STATE };

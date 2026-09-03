@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, nextTick, watch, onActivated, onDeactivated } from 'vue';
-import { store, pushLines, toast, act, resumeConsole } from '../store';
+import { store, pushLines, toast, act, resumeConsole, resetConsoleBuffer } from '../store';
 import { api, rt } from '../api';
 import ControlBar from '../components/ControlBar.vue';
 
@@ -71,16 +71,19 @@ function onKey(e) {
   else if (e.key === 'ArrowDown') { hIdx = Math.max(hIdx - 1, -1); cmd.value = hIdx < 0 ? '' : history.value[hIdx]; }
 }
 async function clearView() {
+  resetConsoleBuffer();
   store.console.lines = [];
   toast('已清空显示（服务端日志文件不受影响）', 'ok', 2200);
 }
 async function loadMore() {
-  const r = await act('more', () => api.consoleTail(store.server.maxLines || 3000));
+  const r = await act('more', () => api.consoleTail(store.settings?.server?.maxLines || 3000));
+  resetConsoleBuffer();
   store.console.lines = r.lines;
   scrollEnd(true);
 }
 onActivated(() => { scrollEnd(true); });
-onDeactivated(() => { store.console.paused = false; });
+// 离开本页时把缓存的行落回缓冲区语义：直接恢复滚动并并回，避免「切个标签页就丢一段日志」
+onDeactivated(() => { resumeConsole(); });
 </script>
 
 <template>

@@ -130,8 +130,8 @@ MCSLite/
 │  └─ fix-encoding.js           # 交付脚本编码规范化（.ps1 加 BOM/CRLF，.bat 保 ASCII）
 ├─ nginx/mcslite.conf           # 静态 + API + WebSocket 统一反代（含 WS 专用 location）
 ├─ test/
-│  ├─ run.js                    # ★端到端 44 项（真起面板 + 真 WS 客户端 + 真子进程）
-│  ├─ unit.js                   # ★纯函数 42 项（用真实服务端日志样本做用例）
+│  ├─ run.js                    # ★端到端 54 项（真起面板 + 真 WS 客户端 + 真子进程）
+│  ├─ unit.js                   # ★纯函数 58 项（用真实服务端日志样本做用例）
 │  ├─ mock-server.js            # 行为对齐真实服务端的假服务端（ANSI/§/中文/崩溃/stdin）
 │  ├─ live-check.mjs            # 真机验收：对真实 NeoForge 核对日志管线与指标
 │  ├─ sampler-check.mjs         # 采样器脚本单跑，验证 WMI 取数字段齐全
@@ -150,8 +150,16 @@ MCSLite/
   `taskkill /T /F`。真机验证：67 模组、223MB 世界的实例，`Saving chunks … All dimensions are saved → 退出码 0`。
 - **强杀**：`taskkill /T /F`（整棵进程树），UI 二次确认并说明「不会存档，可能坏区块」。
 - **崩溃自动重启**：区分 `intentionalStop` 与异常退出；退避 `[5s,15s,60s]`，连续 20 次后停手并留痕。
-- **控制台流式输出**：stdout/stderr 合并 → 流式解码 → 按行切分（单行 8KB 截断、无换行 64KB 强制收口）
+- **控制台流式输出**：stdout / stderr **各自一条解码器与半行缓冲**（两条流交替到达，共用缓冲会焊出
+  半行）→ 流式解码 → 按行切分（单行 8KB 截断、无换行 64KB 强制收口、单块超 2000 行让出事件循环续排）
   → 环形缓冲 → 批量 WS 帧 → 前端 `v-html`（class 全白名单，无 XSS 面）。
+  `consoleEncoding=auto` **绝不为了判定编码而扣住文本**：纯 ASCII 段直接放行（ASCII 在 UTF-8/GBK 下
+  逐字节相同），只有含高位字节的整行才拿去做严格 UTF-8 试解定案——英文服务端从零高位字节的
+  启动日志也必须即时可见（见 `docs/TROUBLESHOOTING.md`「一直显示启动中」）。
+- **运行状态判定**：日志里出现 `Done (x.xxs)! For help, type "help"` 即 STARTING→ONLINE（匹配前一律
+  剥 ANSI，色码会插在词中间）。万一 stdout 送不到（包装脚本、被改的 log4j pattern、`run.bat` 之类），
+  面板**兜底只读** `server.logFile`（默认 `logs/latest.log`）中本次启动之后新增的部分来判定，
+  并在控制台留一条 `<panel>` 说明——不会静默改状态，也不会把文件正文重复灌进控制台。
 
 ### 2. 可视化
 - CPU / 内存 / 磁盘吞吐三张 uPlot 图，20–30 分钟滚动窗口。
@@ -278,7 +286,7 @@ WS   /ws   ← {"t":"sub","topics":["console","metrics","state","players","sampl
 
 ## 九、已验证 / 未覆盖
 
-**已验证**（`npm test` = 44 项端到端 + `node test/unit.js` = 42 项单测，全绿；
+**已验证**（`node test/run.js` = 54 项端到端 + `node test/unit.js` = 58 项单测，全绿；
 另用真实 Chromium 跑通全部 6 个页签、WS 实时推送与图表绘制，控制台零 JS 错误）：
 零依赖后端、鉴权/CSRF/路径穿越/体积上限、启停/强杀/崩溃重启、ANSI+§ 渲染、GBK/UTF-8 自动判定、
 流式上传 3MB 字节一致、properties 保注释回写、按需采样器、审计日志覆盖、WebSocket 握手/分片/心跳/背压、

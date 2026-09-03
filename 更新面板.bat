@@ -18,8 +18,8 @@ if errorlevel 1 (
 echo.
 echo  MCSLite upgrade. Press Ctrl+C to abort.
 echo  Useful switches:
-echo    -Test            run the 42 unit tests after upgrade
-echo    -FullTest        also run the 44 end-to-end checks
+echo    -Test            run the unit tests after upgrade (offline, seconds)
+echo    -FullTest        also run the end-to-end regression suite
 echo    -StopServer      gracefully stop Minecraft first (saves the world)
 echo    -From ^<dir^>      upgrade from an unzipped GitHub download instead of git pull
 echo    -Rollback        restore the newest snapshot under .rollback\

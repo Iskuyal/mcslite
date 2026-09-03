@@ -49,13 +49,13 @@ Python 方案对照：FastAPI + uvicorn + websockets + pydantic 树空转 60–9
 
 | 路径 | 不封顶的后果 | 封顶手段 | 位置 |
 |---|---|---|---|
-| 控制台日志 | 服务端刷 10 万行 ⇒ OOM | 环形缓冲（默认 3000 行）+ 单行 8KB 截断 + 无换行 64KB 强制收口 + 单块 >400 行合并 | `lib/ring.js`、`mc/proc.js` |
+| 控制台日志 | 服务端刷 10 万行 ⇒ OOM | 环形缓冲（默认 3000 行）+ 单行 8KB 截断 + 无换行 64KB 强制收口 + 单块超 2000 行让出事件循环续排（**不合并行**） | `lib/ring.js`、`mc/proc.js#_drain` |
 | 历史日志回放 | 有人 `readFile(debug.log)`（真机 16MB，常见数百 MB） | 从文件尾按 64KB 块回读，最多 5000 行 / 8MB | `api/routes.js#tailFile` |
 | WS 慢客户端 | 一个卡死的浏览器让写队列无限增长 | `writableLength > 512KB` 先丢帧，连续 8 次直接断开（1009） | `lib/ws.js` |
 | WS 广播风暴 | 每行一帧 ⇒ 序列化与 syscall 打满 | 60ms / 300 行批量成帧；**无人订阅直接 return** | `lib/hub.js` |
 | 文件上传 | 一个 2GB 地图包进堆 | `req.pipe(writeStream)`，堆里只有 chunk | `lib/http.js#pipeToFile` |
 | 指标序列 | 跑一周图表变几 MB | 环形 900 点，`series()` 只导出 600，渲染层再切 400 | `sys/monitor.js` |
-| 解码暂存 | auto 判定期间无限缓存 | 64KB 未判定即强制按 UTF-8 定案 | `lib/decode.js` |
+| 解码暂存 | auto 判定期间无限缓存 | **不为判定扣文本**：纯 ASCII 立即放行，只缓存「含高位字节且行未收口」的残段，上限 64KB 强制收口 | `lib/decode.js` |
 | 审计日志 | sqlite 无限增长 | 每次插入后裁剪到 5000 行 | `lib/store.js` |
 | 登录限速表 | 被刷 IP 撑爆 Map | 容量 2048 + 过期压实 | `lib/auth.js` |
 | gzip 缓存 | 每个 etag 一份压缩结果 | LRU 20 条上限 | `lib/static.js` |
@@ -100,7 +100,7 @@ Python 方案对照：FastAPI + uvicorn + websockets + pydantic 树空转 60–9
 curl.exe -s http://127.0.0.1:8787/api/health      # rss / uptime
 
 # 2) 压力回归：刷日志 + 反复开关订阅，看 WorkingSet 是否回落
-node test\run.js                                   # 44 项端到端内含 RSS 断言
+node test\run.js                                   # 端到端回归内含 RSS 断言
 
 # 3) 外部对照（别只信面板自己说的）
 Get-Process -Id <面板PID> | Select WorkingSet64,PrivateMemorySize64

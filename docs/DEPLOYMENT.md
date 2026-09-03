@@ -317,7 +317,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\update.ps1 -Test
 |---|---|---|
 | 1 | 备份**当前代码 + data\** 到 `.rollback\<时间戳>\` | 只保留最近 5 个快照，不会越攒越大 |
 | 2 | 可选 `-StopServer`：通过面板 API 优雅停服（会存档） | 不给就明确警告"面板会重启，java 会脱离管理" |
-| 3 | 取新代码：`git pull --ff-only`，或 `-From <解压目录>` 用 robocopy 镜像替换 | 替换时 `/XD data .git .rollback node_modules` —— **数据目录结构上不可能被覆盖** |
+| 3 | 取新代码：`git pull --ff-only`，或 `-From <解压目录>` 用 robocopy 镜像替换 | 替换时 `/XD data .git .rollback node_modules instance world libraries mods` —— **数据目录与 MC 实例结构上不可能被覆盖**（`/MIR` 会删除"目标有、源没有"的文件，所以裸名排除是必需的：把服务端放在面板目录里时，少一条就会把世界删掉。这条删除路径实测复现过） |
 | 4 | 校验交付脚本编码不变量（`.ps1` 必须仍是 UTF-8 BOM + CRLF），可选跑 42 单测 / 44 端到端 | 编码守护不通过会**自动修**而不是留个坏脚本 |
 | 5 | 重启面板并轮询 `/api/health`；**20 秒内不健康就自动回滚第 1 步的代码** | 不会留下"更新到一半起不来"的砖 |
 
@@ -343,10 +343,17 @@ update.ps1 -Rollback
 ### 关于"更新会不会影响我的服务器/世界"
 
 不会。三层隔离：
+
 1. **代码与数据物理分离**：可执行文件全在 `server\`、`web\`、`scripts\`，状态全在 `data\`；
-   更新用 `robocopy /XD data` 镜像，结构上就覆盖不到。
+   更新用 `robocopy /XD` 镜像，排除表里明确含 `data`、`.git`、`.rollback`、`node_modules`。
 2. **面板与游戏进程解耦**（`stopOnExit` 默认 false）：更新面板不会把 java 一起带走。
-3. **Java/Minecraft 实例目录只被"沙箱内的文件 API"访问**，更新流程完全不碰它。
+3. **Java/Minecraft 实例目录**：放在面板目录之外时天然不在镜像范围内；放在面板目录之内
+   （面板首启的默认值就是 `<仓库>\instance`，把服务端直接丢进面板目录也是常见做法）时，
+   靠排除表里的裸名 `instance` / `world` / `libraries` / `mods` 兜住。
+   ⚠ 这条是后补的：`robocopy /MIR` 会删除"目标有、源没有"的文件，早期版本只排了
+   `data`/`.git`/`.rollback`/`node_modules`，于是 `-From` 更新会顺手删掉仓库里的
+   `instance\`（含世界）。实测复现过，现排除表已补全；`settings.server.root` 落在面板
+   目录内时脚本还会把该全路径追加进去并打一行提示。
 
 唯一的真实副作用：**面板重启后会失去对当前 java 进程的 stdin 句柄**，
 于是那一刻 UI 显示"已停止"而游戏其实还在跑。三种应对：

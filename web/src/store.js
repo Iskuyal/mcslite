@@ -33,6 +33,7 @@ export const store = reactive({
 });
 
 let toastSeq = 0;
+let buffered = [];            // 暂停滚动期间缓存的行（非响应式，省掉 Proxy 开销；恢复时一次性并入）
 export function toast(text, kind = 'info', ms = 3600) {
   const id = ++toastSeq;
   store.toasts.push({ id, text, kind });
@@ -83,8 +84,8 @@ export function bindRealtime() {
   rt.onStatus = (s) => { store.wsStatus = s; };
   rt.on('hello', (d) => { if (d && d.state) store.server = d.state; });
   rt.on('lines', (arr) => pushLines(arr));
-  rt.on('replay', (d) => { if (d && d.lines) { store.console.lines = d.lines.slice(-MAX_RENDER); } });
-  rt.on('cleared', () => { store.console.lines = []; });
+  rt.on('replay', (d) => { if (d && d.lines) { resetConsoleBuffer(); store.console.lines = d.lines.slice(-MAX_RENDER); } });
+  rt.on('cleared', () => { resetConsoleBuffer(); store.console.lines = []; });
   rt.on('metrics', (p) => { store.lastPoint = p; appendPoint(p); });
   rt.on('series', (d) => {
     if (!d || !d.points) return;
@@ -104,8 +105,21 @@ export function bindRealtime() {
 
 export function pushLines(arr) {
   if (!arr || !arr.length) return;
-  if (store.console.paused) { store.console.pending = (store.console.pending || 0) + arr.length; return; }
   const lines = store.console.lines;
+  if (store.console.paused) {
+    // 暂停滚动 ≠ 丢弃日志。以前只加计数就把行扔掉，恢复后画面与服务端真实输出
+    // 永久错位（少一段），正是「控制台显示的日志和实际不一样」的成因之一。
+    for (const l of arr) buffered.push(l);
+    const over = buffered.length - MAX_RENDER;
+    if (over > 0) buffered.splice(0, over);
+    store.console.pending = buffered.length;
+    return;
+  }
+  if (buffered.length) {                       // 兜底：paused 被别处直接置 false 也不丢行
+    for (const l of buffered) lines.push(l);
+    buffered = [];
+    store.console.pending = 0;
+  }
   for (const l of arr) lines.push(l);
   const over = lines.length - MAX_RENDER;
   if (over > 0) lines.splice(0, over);
@@ -113,6 +127,19 @@ export function pushLines(arr) {
 
 export function resumeConsole() {
   store.console.paused = false;
+  if (buffered.length) {
+    const lines = store.console.lines;
+    for (const l of buffered) lines.push(l);
+    buffered = [];
+    const over = lines.length - MAX_RENDER;
+    if (over > 0) lines.splice(0, over);
+  }
+  store.console.pending = 0;
+}
+
+/** 清屏/重放：缓存行一并作废，避免旧行在恢复时倒灌回新画面 */
+export function resetConsoleBuffer() {
+  buffered = [];
   store.console.pending = 0;
 }
 

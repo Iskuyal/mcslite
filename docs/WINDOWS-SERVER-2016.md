@@ -245,7 +245,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install.ps1
 # 2) 只体检不启动
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start.ps1 -CheckOnly
 
-# 3) 起面板 + 端到端回归（44 项）+ 纯函数单测（42 项）
+# 3) 起面板 + 端到端回归 + 纯函数单测
 node server\index.js
 node test\run.js
 node test\unit.js

@@ -264,6 +264,60 @@ async function main() {
     await until(async () => (await (await req('GET', '/api/state')).json).server.state === 'offline', 15000);
     ok('强制终止（taskkill）后状态一致', (await (await req('GET', '/api/state')).json).server.state === 'offline');
 
+    // ——— 16.5 全 ASCII 服务端（真实 Forge 1.20.1 控制台字节流回放）———
+    // 回归对象：编码嗅探扣住文本 → 控制台空白 + 状态永久停在 starting。
+    // mock-server.js 的中文行会让 auto 立刻定案，恰好绕开这条路径，所以必须单开一例。
+    await req('POST', '/api/server/kill', { body: {} });
+    await until(async () => (await (await req('GET', '/api/state')).json).server.state === 'offline', 15000);
+    await req('PUT', '/api/settings', {
+      body: {
+        server: {
+          autoRestart: false, consoleEncoding: 'auto', launcher: 'command',
+          startCommand: `"${process.execPath}" "${path.join(ROOT, 'test', 'mock-ascii-server.js')}" --fast`,
+        },
+      },
+    });
+    await req('POST', '/api/console/clear', { body: {} });
+    const stA = await req('POST', '/api/server/start', { body: {} });
+    ok('纯 ASCII 服务端启动', stA.status === 200 && stA.json.pid > 0, stA.json && `pid=${stA.json.pid}`);
+    const flow = await until(async () => { const r = await req('GET', '/api/console?lines=800'); return r.json.lines.length >= 60 ? r.json.lines : null; }, 6000);
+    ok('全 ASCII 输出 6s 内持续出词（旧实现此时一行都没有）', !!flow, flow && `${flow.length} 行`);
+    const encNow = (await (await req('GET', '/api/state')).json).server.encoding;
+    ok('尚未定案编码也必须照直行（encoding=pending 是预期）', encNow === 'pending', `encoding=${encNow}`);
+    ok('逐行完整、无被合并的巨型行', flow && flow.every((l) => l.raw.length < 400 && !/\n/.test(l.raw)), flow && flow.reduce((a, l) => Math.max(a, l.raw.length), 0));
+    ok('Forge 的 Done 行被认出（stdout 路径）', flow && flow.some((l) => /Done \(13\.206s\)/.test(l.raw)));
+    const onlineA = await until(async () => { const s = (await (await req('GET', '/api/state')).json).server; return s.state === 'online' ? s : null; }, 10000);
+    ok('状态机 STARTING → ONLINE（纯 ASCII 服务端）', !!onlineA, onlineA && `state=${onlineA.state}`);
+    await req('POST', '/api/server/stop', { body: {} });
+    const offA = await until(async () => (await (await req('GET', '/api/state')).json).server.state === 'offline', 15000);
+    ok('ASCII mock 优雅停止', !!offA);
+
+    // ——— 16.6 stdout 完全静默的服务端 → 兜底读 logs/latest.log 判在线 ———
+    await req('PUT', '/api/settings', {
+      body: { server: { startCommand: `"${process.execPath}" "${path.join(ROOT, 'test', 'mock-ascii-server.js')}" --quiet` } },
+    });
+    await req('POST', '/api/console/clear', { body: {} });
+    await req('POST', '/api/server/start', { body: {} });
+    const onlineB = await until(async () => { const s = (await (await req('GET', '/api/state')).json).server; return s.state === 'online' ? s : null; }, 20000);
+    ok('stdout 没有 Done 时由日志文件兜底判 ONLINE', !!onlineB, onlineB && `state=${onlineB.state}`);
+    const noteB = await req('GET', '/api/console?lines=200');
+    ok('兜底判定在控制台留痕（不静默改状态）', noteB.json.lines.some((l) => /已由 logs\/latest\.log 判定为运行中/.test(l.raw)),
+      noteB.json.lines.filter((l) => /判定为运行中/.test(l.raw)).map((l) => l.raw[0] || '')[0]);
+    await req('POST', '/api/server/kill', { body: {} });
+    await until(async () => (await (await req('GET', '/api/state')).json).server.state === 'offline', 15000);
+
+    // ——— 16.7 面板落盘时间戳与控制台显示同为本地时间（旧实现写 UTC，两边差一个时区）———
+    const sinkFile = path.join(DATA, 'logs', 'panel-console.log');
+    const sinkLines = fs.existsSync(sinkFile) ? fs.readFileSync(sinkFile, 'utf8').split(/\r?\n/).filter(Boolean) : [];
+    const lastSink = /^\d{2}:\d{2}:\d{2}/.exec(sinkLines.length ? sinkLines[sinkLines.length - 1] : '');
+    const nowLocal = new Date().toTimeString().slice(0, 8);
+    const nowUtc = new Date().toISOString().slice(11, 19);
+    const secs = (h) => (+h.slice(0, 2)) * 3600 + (+h.slice(3, 5)) * 60 + (+h.slice(6, 8));
+    let skew = lastSink ? Math.abs(secs(lastSink[0]) - secs(nowLocal)) : 1e9;
+    if (skew > 43200) skew = 86400 - skew;                        // 跨午夜回绕
+    ok('面板日志落盘用本地时间（能与服务端日志直接对齐）', !!lastSink && skew <= 3600,
+      `${lastSink && lastSink[0]} vs 本地 ${nowLocal}（UTC 写法会是 ${nowUtc}）`);
+
     // ——— 17. 内存画像 ———
     const mem = await req('GET', '/api/health', { noCookie: true });
     const rssMB = mem.json.rss / 1048576;

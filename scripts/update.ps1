@@ -4,7 +4,9 @@
 .DESCRIPTION
   更新流程（全程不动 data\ 与 Minecraft 实例目录）：
     1) 记录当前版本，备份 data\ 与当前面板代码到 .rollback\<时间戳>\
-    2) 取新代码：git 仓库 → git pull；给了 -From <新目录> → robocopy 镜像替换（保留 data 等）
+    2) 取新代码：git 仓库 → git pull；给了 -From <新目录> → robocopy 镜像替换
+       （镜像时排除 data\、.git\、.rollback\、node_modules，以及 settings 里指向
+        面板目录内部的实例目录 —— 否则 /MIR 会把放在仓库里的 MC 世界删掉）
     3) 校验交付脚本编码不变量（.ps1 必须仍是 UTF-8 BOM + CRLF）
     4) 可选跑测试（-Test 单测 / -FullTest 再加端到端）
     5) 重启面板并健康检查；不健康则自动回滚到第 1 步的备份
@@ -16,9 +18,9 @@
 .PARAMETER KeepServer
   与 StopServer 相反：明确保留游戏进程（默认行为，仅作可读性开关）。
 .PARAMETER Test
-  更新后运行 42 项纯函数单测（离线、几秒完成）。
+  更新后运行纯函数单测（离线、几秒完成；通过条数由测试自己打印，不在此写死）。
 .PARAMETER FullTest
-  额外运行 44 项端到端回归（会另起一个临时面板实例与 mock 服务端，不动你的配置）。
+  额外运行端到端回归（会另起一个临时面板实例与 mock 服务端，不动你的配置）。
 .PARAMETER NoRestart
   只更新文件，不重启面板。
 .PARAMETER Rollback
@@ -114,6 +116,25 @@ Info "监听端口：$port"
 $ts = Get-Date -Format 'yyyyMMdd-HHmmss'
 $snap = Join-Path $ROLL $ts
 
+# robocopy /MIR 会删除「目标里有、源里没有」的文件 —— 只排 data / .git / .rollback 并不够：
+# 面板首启的默认实例目录就是 <仓库>\instance（本机实测它就躺在那儿，里面是 server.properties
+# 与 logs），把服务端放进面板目录也是常见做法（.gitignore 为此预留了 instance/ world/
+# libraries/ mods/ logs/）。漏掉它，一次 -From 更新就会把整个 MC 世界删掉 ——
+# 这条删除路径我跑实验实测复现了，不是理论风险。
+#   · 裸名（instance / world / libraries / mods / node_modules）对源树与目标树一并生效：
+#     只写全路径会留漏洞 —— -From 指向另一份「自带实例的面板目录」时，源里的同名子树
+#     仍会被灌进目标并连带 /MIR 掉内容（实测就是这样把 level.dat 删掉的）；
+#   · settings.server.root 若落在面板目录内，再按全路径补一条。
+$XD = @((Join-Path $BASE 'data'), (Join-Path $BASE '.git'), (Join-Path $BASE '.rollback'),
+        'node_modules', 'instance', 'world', 'libraries', 'mods')
+try {
+  if ($cfg -and $cfg.server -and $cfg.server.root) {
+    $instRoot = (Resolve-Path -LiteralPath ([string]$cfg.server.root) -ErrorAction Stop).Path.TrimEnd('\')
+    if ($instRoot -like ($BASE.TrimEnd('\') + '\*')) { $XD += $instRoot; Info "实例目录在面板目录内，镜像时一并排除：$instRoot" }
+  }
+} catch { }
+$XD = @($XD | Select-Object -Unique)
+
 function Stop-Panel([int]$Port) {
   Info '停止面板…'
   try { $t = Get-ScheduledTask -TaskName $TASK -ErrorAction SilentlyContinue; if ($t) { Stop-ScheduledTask -TaskName $TASK } } catch { }
@@ -159,8 +180,8 @@ function Start-Panel([int]$Port) {
 function Restore-Code([string]$SnapDir) {
   $codeDir = Join-Path $SnapDir 'code'
   if (-not (Test-Path -LiteralPath $codeDir)) { Bad "快照缺少 code：$codeDir" }
-  # 反向镜像：把快照里的代码放回 BASE，同样排除 data / 依赖 / 回滚区，绝不碰数据与游戏文件
-  & robocopy $codeDir $BASE /MIR /XD "$BASE\data" "$BASE\.git" "$BASE\.rollback" 'node_modules' /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
+  # 反向镜像：把快照里的代码放回 BASE，同样排除 data / 依赖 / 回滚区 / 实例目录
+  & robocopy $codeDir $BASE /MIR /XD $XD /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
   if ($LASTEXITCODE -ge 8) { Bad "robocopy 回滚失败 exit=$LASTEXITCODE" }
   Info '代码已按快照恢复'
 }
@@ -185,7 +206,7 @@ Step '1/5 备份（数据 + 当前代码）'
 New-Item -ItemType Directory -Path $ROLL -Force | Out-Null
 New-Item -ItemType Directory -Path $snap -Force | Out-Null
 $codeBak = Join-Path $snap 'code'
-Invoke-Native { & robocopy $BASE $codeBak /MIR /XD "$BASE\data" "$BASE\.git" "$BASE\.rollback" 'node_modules' /XF '*.log' /NFL /NDL /NJH /NJS /NP /R:1 /W:1 } | Out-Null
+Invoke-Native { & robocopy $BASE $codeBak /MIR /XD $XD /XF '*.log' /NFL /NDL /NJH /NJS /NP /R:1 /W:1 } | Out-Null
 if ($LASTEXITCODE -ge 8) { Bad "代码备份失败 exit=$LASTEXITCODE（未做任何改动）" }
 Ok "已备份当前代码 → .rollback\$ts\code"
 
@@ -241,7 +262,7 @@ if ($From) {
   if (-not (Test-Path -LiteralPath $srcIndex)) { Bad "-From 目录里没有 server\index.js，不像是 MCSLite 新版本：$From" }
   # 注意：robocopy 的返回值要看 $LASTEXITCODE（0-7 都算成功，>=8 才是错误）。
   # 把 stdout 捕获进变量再拿它比 8 是错的 —— PowerShell 会做数组过滤，永远不会触发。
-  Invoke-Native { & robocopy $From $BASE /MIR /XD "$BASE\data" "$BASE\.git" "$BASE\.rollback" "$From\.git" "$From\.rollback" 'node_modules' /XF '*.log' /NFL /NDL /NJH /NJS /NP /R:1 /W:1 } | Out-Null
+  Invoke-Native { & robocopy $From $BASE /MIR /XD $XD "$From\.git" "$From\.rollback" /XF '*.log' /NFL /NDL /NJH /NJS /NP /R:1 /W:1 } | Out-Null
   if ($LASTEXITCODE -ge 8) { Bad "robocopy 更新失败 exit=$LASTEXITCODE" }
   Ok "已从 $From 镜像替换代码"
 }
@@ -276,13 +297,13 @@ if (Test-Path -LiteralPath $fe) {
   if ($chk.Code -ne 0) { Warn '交付脚本行尾/BOM 被改动，正在自动修复' ; Invoke-Native { & node $fe } | Out-Null }
 }
 if ($Test -or $FullTest) {
-  Info '运行纯函数单测（42 项，离线）…'
+  Info '运行纯函数单测（离线）…'
   Push-Location $BASE
   $ut = Invoke-Native { & node test\unit.js }
   Write-Host "     $(($ut.Out -split "`n" | Select-Object -Last 1))"
   $u = $ut.Code
   if ($FullTest) {
-    Info '运行端到端回归（44 项，会另起临时实例）…'
+    Info '运行端到端回归（会另起临时实例）…'
     $et = Invoke-Native { & node test\run.js }
     Write-Host "     $(($et.Out -split "`n" | Select-Object -Last 2) -join '  ')"
     if ($et.Code -ne 0) { Pop-Location; Bad '端到端回归失败，执行回滚： scripts\update.ps1 -Rollback' }

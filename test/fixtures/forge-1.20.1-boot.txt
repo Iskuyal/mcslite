@@ -1,0 +1,72 @@
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::objectFieldOffset has been called by cpw.mods.jarhandling.impl.SecureJarVerifier$UnsafeAccessor (file:/E:/Desktop/1.20.1Forge/libraries/cpw/mods/securejarhandler/2.1.10/securejarhandler-2.1.10.jar)
+WARNING: Please consider reporting this to the maintainers of class cpw.mods.jarhandling.impl.SecureJarVerifier$UnsafeAccessor
+WARNING: sun.misc.Unsafe::objectFieldOffset will be removed in a future release
+2026-09-03 17:36:33,259 main WARN Advanced terminal features are not available in this environment
+[17:36:33] [main/INFO] [cp.mo.mo.Launcher/MODLAUNCHER]: ModLauncher running: args [--launchTarget, forgeserver, --fml.forgeVersion, 47.4.23, --fml.mcVersion, 1.20.1, --fml.forgeGroup, net.minecraftforge, --fml.mcpVersion, 20230612.114412, -nogui, --world, ./probe-world, --port, 25599]
+[17:36:33] [main/INFO] [cp.mo.mo.Launcher/MODLAUNCHER]: ModLauncher 10.0.9+10.0.9+main.dcd20f30 starting: java version 25.0.2 by Oracle Corporation; OS Windows 11 arch amd64 version 10.0
+[17:36:33] [main/INFO] [ne.mi.fm.lo.ImmediateWindowHandler/]: ImmediateWindowProvider not loading because launch target is forgeserver
+[17:36:33] [main/INFO] [mixin/]: SpongePowered MIXIN Subsystem Version=0.8.5 Source=union:/E:/Desktop/1.20.1Forge/libraries/org/spongepowered/mixin/0.8.5/mixin-0.8.5.jar%2365!/ Service=ModLauncher Env=SERVER
+[17:36:33] [main/WARN] [ne.mi.fm.lo.mo.ModFileParser/LOADING]: Mod file E:\Desktop\1.20.1Forge\libraries\net\minecraftforge\fmlcore\1.20.1-47.4.23\fmlcore-1.20.1-47.4.23.jar is missing mods.toml file
+[17:36:33] [main/WARN] [ne.mi.fm.lo.mo.ModFileParser/LOADING]: Mod file E:\Desktop\1.20.1Forge\libraries\net\minecraftforge\javafmllanguage\1.20.1-47.4.23\javafmllanguage-1.20.1-47.4.23.jar is missing mods.toml file
+[17:36:33] [main/WARN] [ne.mi.fm.lo.mo.ModFileParser/LOADING]: Mod file E:\Desktop\1.20.1Forge\libraries\net\minecraftforge\lowcodelanguage\1.20.1-47.4.23\lowcodelanguage-1.20.1-47.4.23.jar is missing mods.toml file
+[17:36:33] [main/WARN] [ne.mi.fm.lo.mo.ModFileParser/LOADING]: Mod file E:\Desktop\1.20.1Forge\libraries\net\minecraftforge\mclanguage\1.20.1-47.4.23\mclanguage-1.20.1-47.4.23.jar is missing mods.toml file
+[17:36:33] [main/INFO] [ne.mi.fm.lo.mo.JarInJarDependencyLocator/]: No dependencies to load found. Skipping!
+[17:36:34] [main/INFO] [cp.mo.mo.LaunchServiceHandler/MODLAUNCHER]: Launching target 'forgeserver' with arguments [-nogui, --world, ./probe-world, --port, 25599]
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by com.sun.jna.Native in module com.sun.jna (union:/E:/Desktop/1.20.1Forge/libraries/net/java/dev/jna/jna/5.12.1/jna-5.12.1.jar%2391!/)
+WARNING: Use --enable-native-access=com.sun.jna to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+[17:36:38] [modloading-worker-0/INFO] [ne.mi.co.ForgeMod/FORGEMOD]: Forge mod loading, version 47.4.23, for MC 1.20.1 with MCP 20230612.114412
+[17:36:38] [modloading-worker-0/INFO] [ne.mi.co.MinecraftForge/FORGE]: MinecraftForge v47.4.23 Initialized
+[17:36:39] [Forge Version Check/INFO] [ne.mi.fm.VersionChecker/]: [forge] Starting version check at https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json
+[17:36:39] [main/INFO] [mojang/YggdrasilAuthenticationService]: Environment: authHost='https://authserver.mojang.com', accountsHost='https://api.mojang.com', sessionHost='https://sessionserver.mojang.com', servicesHost='https://api.minecraftservices.com', name='PROD'
+[17:36:39] [main/WARN] [minecraft/VanillaPackResourcesBuilder]: Assets URL 'union:/E:/Desktop/1.20.1Forge/libraries/net/minecraft/server/1.20.1-20230612.114412/server-1.20.1-20230612.114412-srg.jar%23101!/assets/.mcassetsroot' uses unexpected schema
+[17:36:39] [main/WARN] [minecraft/VanillaPackResourcesBuilder]: Assets URL 'union:/E:/Desktop/1.20.1Forge/libraries/net/minecraft/server/1.20.1-20230612.114412/server-1.20.1-20230612.114412-srg.jar%23101!/data/.mcassetsroot' uses unexpected schema
+[17:36:40] [Forge Version Check/INFO] [ne.mi.fm.VersionChecker/]: [forge] Found status: AHEAD Current: 47.4.23 Target: null
+[17:36:41] [main/INFO] [minecraft/RecipeManager]: Loaded 7 recipes
+[17:36:41] [main/INFO] [minecraft/AdvancementList]: Loaded 1271 advancements
+[17:36:41] [Server thread/INFO] [minecraft/DedicatedServer]: Starting minecraft server version 1.20.1
+[17:36:41] [Server thread/INFO] [minecraft/DedicatedServer]: Loading properties
+[17:36:41] [Server thread/INFO] [minecraft/DedicatedServer]: Default game type: SURVIVAL
+[17:36:41] [Server thread/INFO] [minecraft/MinecraftServer]: Generating keypair
+[17:36:41] [Server thread/INFO] [minecraft/DedicatedServer]: Starting Minecraft server on *:25599
+[17:36:41] [Server thread/INFO] [minecraft/ServerConnectionListener]: Using default channel type
+[17:36:41] [Server thread/WARN] [ne.mi.co.ForgeConfigSpec/CORE]: Configuration file G:\MCSLite\test\.tmp-probe\probe-world\serverconfig\forge-server.toml is not correct. Correcting
+[17:36:41] [Server thread/WARN] [ne.mi.co.ForgeConfigSpec/CORE]: Incorrect key server was corrected from null to its default, SimpleCommentedConfig:{}. 
+[17:36:41] [Server thread/WARN] [ne.mi.co.ForgeConfigSpec/CORE]: Incorrect key server.removeErroringBlockEntities was corrected from null to its default, false. 
+[17:36:41] [Server thread/WARN] [ne.mi.co.ForgeConfigSpec/CORE]: Incorrect key server.removeErroringEntities was corrected from null to its default, false. 
+[17:36:41] [Server thread/WARN] [ne.mi.co.ForgeConfigSpec/CORE]: Incorrect key server.fullBoundingBoxLadders was corrected from null to its default, false. 
+[17:36:41] [Server thread/WARN] [ne.mi.co.ForgeConfigSpec/CORE]: Incorrect key server.zombieBaseSummonChance was corrected from null to its default, 0.1. 
+[17:36:41] [Server thread/WARN] [ne.mi.co.ForgeConfigSpec/CORE]: Incorrect key server.zombieBabyChance was corrected from null to its default, 0.05. 
+[17:36:41] [Server thread/WARN] [ne.mi.co.ForgeConfigSpec/CORE]: Incorrect key server.permissionHandler was corrected from null to its default, forge:default_handler. 
+[17:36:41] [Server thread/WARN] [ne.mi.co.ForgeConfigSpec/CORE]: Incorrect key server.advertiseDedicatedServerToLan was corrected from null to its default, true. 
+[17:36:41] [Server thread/WARN] [ne.mi.co.ForgeConfigSpec/CORE]: Incorrect key server.useItemWithDurationZero was corrected from null to its default, false. 
+[17:36:41] [Server thread/INFO] [minecraft/DedicatedServer]: Preparing level "./probe-world"
+[17:36:43] [Server thread/INFO] [minecraft/MinecraftServer]: Preparing start region for dimension minecraft:overworld
+[17:36:44] [Worker-Main-9/INFO] [minecraft/LoggerChunkProgressListener]: Preparing spawn area: 0%
+[17:36:44] [Worker-Main-16/INFO] [minecraft/LoggerChunkProgressListener]: Preparing spawn area: 0%
+[17:36:44] [Worker-Main-4/INFO] [minecraft/LoggerChunkProgressListener]: Preparing spawn area: 1%
+[17:36:45] [Worker-Main-4/INFO] [minecraft/LoggerChunkProgressListener]: Preparing spawn area: 3%
+[17:36:45] [Worker-Main-9/INFO] [minecraft/LoggerChunkProgressListener]: Preparing spawn area: 7%
+[17:36:46] [Worker-Main-13/INFO] [minecraft/LoggerChunkProgressListener]: Preparing spawn area: 9%
+[17:36:46] [Worker-Main-12/INFO] [minecraft/LoggerChunkProgressListener]: Preparing spawn area: 14%
+[17:36:47] [Worker-Main-2/INFO] [minecraft/LoggerChunkProgressListener]: Preparing spawn area: 18%
+[17:36:47] [Worker-Main-18/INFO] [minecraft/LoggerChunkProgressListener]: Preparing spawn area: 22%
+[17:36:48] [Worker-Main-6/INFO] [minecraft/LoggerChunkProgressListener]: Preparing spawn area: 26%
+[17:36:48] [Worker-Main-1/INFO] [minecraft/LoggerChunkProgressListener]: Preparing spawn area: 33%
+[17:36:49] [Worker-Main-3/INFO] [minecraft/LoggerChunkProgressListener]: Preparing spawn area: 39%
+[17:36:49] [Worker-Main-8/INFO] [minecraft/LoggerChunkProgressListener]: Preparing spawn area: 44%
+[17:36:50] [Worker-Main-18/INFO] [minecraft/LoggerChunkProgressListener]: Preparing spawn area: 45%
+[17:36:50] [Worker-Main-11/INFO] [minecraft/LoggerChunkProgressListener]: Preparing spawn area: 48%
+[17:36:51] [Worker-Main-17/INFO] [minecraft/LoggerChunkProgressListener]: Preparing spawn area: 54%
+[17:36:51] [Worker-Main-16/INFO] [minecraft/LoggerChunkProgressListener]: Preparing spawn area: 58%
+[17:36:52] [Worker-Main-13/INFO] [minecraft/LoggerChunkProgressListener]: Preparing spawn area: 67%
+[17:36:52] [Worker-Main-3/INFO] [minecraft/LoggerChunkProgressListener]: Preparing spawn area: 69%
+[17:36:53] [Worker-Main-8/INFO] [minecraft/LoggerChunkProgressListener]: Preparing spawn area: 76%
+[17:36:53] [Worker-Main-14/INFO] [minecraft/LoggerChunkProgressListener]: Preparing spawn area: 83%
+[17:36:54] [Worker-Main-6/INFO] [minecraft/LoggerChunkProgressListener]: Preparing spawn area: 88%
+[17:36:54] [Worker-Main-7/INFO] [minecraft/LoggerChunkProgressListener]: Preparing spawn area: 93%
+[17:36:54] [Server thread/INFO] [minecraft/LoggerChunkProgressListener]: Time elapsed: 11277 ms
+[17:36:54] [Server thread/INFO] [minecraft/DedicatedServer]: Done (13.206s)! For help, type "help"
+[17:36:54] [Server thread/INFO] [ne.mi.se.pe.PermissionAPI/]: Successfully initialized permission handler forge:default_handler

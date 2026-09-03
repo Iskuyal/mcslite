@@ -32,11 +32,13 @@ span.bk{background:#6e7681}span.br{background:#f85149}span.bg{background:#3fb950
 span.bK{background:#768390}span.bR{background:#ff7b72}span.bG{background:#7ee787}span.bY{background:#e3b341}span.bB{background:#79c0ff}span.bM{background:#d2a8ff}span.bC{background:#56d4dd}span.bW{background:#e6edf3}
 .bold{font-weight:700}.dim{opacity:.55}.italic{font-style:italic}.underline{text-decoration:underline}.strike{text-decoration:line-through}.obf{filter:blur(3px)}
 .inverse{filter:invert(1)}
-.lv-error .line{background:rgba(248,81,73,.09);box-shadow:inset 2px 0 0 var(--err)}
-.lv-warn .line{box-shadow:inset 2px 0 0 var(--warn)}
-.lv-sys .line{color:#8b949e;font-style:italic}
-.lv-cmd .line{color:#e3b341;font-weight:600}
-.lv-debug .line,.lv-trace .line{opacity:.5}
+/* 级别强调：DOM 是 <div class="line lv-error">，必须写成 .line.lv-*；
+   旧写法 .lv-error .line 是后代选择器，永远匹配不上 → 级别配色形同不存在 */
+.line.lv-error{background:rgba(248,81,73,.09);box-shadow:inset 2px 0 0 var(--err)}
+.line.lv-warn{box-shadow:inset 2px 0 0 var(--warn)}
+.line.lv-sys{color:#8b949e;font-style:italic}
+.line.lv-cmd{color:#e3b341;font-weight:600}
+.line.lv-debug,.line.lv-trace{opacity:.5}
 
 /* ————————————————— 通用控件 ————————————————— */
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }

@@ -9,6 +9,8 @@ const { StreamDecoder } = require('../server/lib/decode');
 const config = require('../server/lib/config');
 const { parseList } = require('../server/mc/rcon');
 const assert = require('node:assert');
+const fs = require('node:fs');
+const path = require('node:path');
 
 let pass = 0, fail = 0;
 function t(name, fn) {
@@ -83,9 +85,49 @@ const GBK_FUWU = [0xb7, 0xfe, 0xce, 0xf1];               // 服务
 const GBK_NIHAO = [0xc4, 0xe3, 0xba, 0xc3];              // 你好
 const GBK_CEISHI = [0xb2, 0xe2, 0xca, 0xd4];             // 测试
 
+t('纯 ASCII 必须立刻输出（旧实现在此扣住整段，直到攒满 64KB 才吐一个字符 —— 面板卡死的根因）', () => {
+  const d = new StreamDecoder('auto');
+  const line = '[17:36:54] [Server thread/INFO] [minecraft/DedicatedServer]: Done (13.206s)! For help, type "help"\n';
+  assert.strictEqual(d.push(Buffer.from(line, 'utf8')), line);
+  assert.strictEqual(d.encoding, 'pending', '纯 ASCII 判不出编码很正常，但绝不能因此扣着不发');
+});
+t('真实 Forge 1.20.1 启动字节流分 137B 小块回放：字节级守恒、顺序不乱、零 U+FFFD', () => {
+  const raw = fs.readFileSync(path.join(__dirname, 'fixtures', 'forge-1.20.1-boot.txt'));
+  assert.ok(!raw.some((b) => b > 0x7f), 'fixture 必须保持全 ASCII（这条用例的全部意义）');
+  const d = new StreamDecoder('auto');
+  let acc = '';
+  for (let i = 0; i < raw.length; i += 137) acc += d.push(raw.subarray(i, Math.min(i + 137, raw.length)));
+  acc += d.end();
+  assert.strictEqual(acc, raw.toString('utf8'));
+  assert.ok(!acc.includes('\uFFFD'));
+});
+t('纯 ASCII 段先发不重复；后续 GBK 行才定案', () => {
+  const d = new StreamDecoder('auto');
+  assert.strictEqual(d.push(Buffer.from('hello world', 'utf8')), 'hello world');   // 先发，不缓存
+  assert.strictEqual(d.push(Buffer.from([...GBK_NIHAO, 0x0a])), '你好\n', '整行样本才判定');
+  assert.strictEqual(d.encoding, 'gbk');
+  assert.strictEqual(d.push(Buffer.from(GBK_CEISHI)), '测试');                       // 定案后按 GBK 解
+});
+t('半个多字节字符被切断：只缓存该行，不产生 U+FFFD 也不乱序', () => {
+  const full = Buffer.from('前面 中文尾巴\n', 'utf8');
+  const d = new StreamDecoder('auto');
+  let out = '';
+  for (let i = 0; i < full.length; i += 3) out += d.push(full.subarray(i, Math.min(i + 3, full.length)));
+  out += d.end();
+  assert.strictEqual(out, '前面 中文尾巴\n');
+  assert.ok(!out.includes('\uFFFD'), out);
+});
+t('无换行的 GBK 长行也要收口（缓存有上限，不许无限攒）', () => {
+  const d = new StreamDecoder('auto');
+  let out = '';
+  const unit = Buffer.from([...GBK_ZHONGWEN, ...GBK_CEISHI]);   // 中文测试（8 字节 GBK）
+  for (let i = 0; i < 20000; i++) out += d.push(unit);
+  assert.ok(out.length > 10000, `缓存到上限后必须继续吐字，实得 ${out.length}`);
+  assert.ok(d.encoding === 'gbk' || d.encoding === 'utf-8', '最终一定要定案');
+});
 t('GBK 字节流自动判定并正确解码', () => {
   const d = new StreamDecoder('auto');
-  const s = d.push(Buffer.from(GBK_ZHONGWEN)) + d.push(Buffer.from(GBK_FUWU));
+  const s = d.push(Buffer.from(GBK_ZHONGWEN)) + d.push(Buffer.from(GBK_FUWU)) + d.end();
   assert.strictEqual(s, '中文服务');
   assert.strictEqual(d.encoding, 'gbk');
 });
@@ -94,13 +136,6 @@ t('UTF-8 中文自动判定', () => {
   const s = d.push(Buffer.from('中文', 'utf8'));
   assert.strictEqual(s, '中文');
   assert.strictEqual(d.encoding, 'utf-8');
-});
-t('纯 ASCII 前缀不提前定案，且定案后不丢已缓存内容', () => {
-  const d = new StreamDecoder('auto');
-  assert.strictEqual(d.push(Buffer.from('hello world', 'utf8')), '');   // 无高位字节 → 暂存
-  const s = d.push(Buffer.from(GBK_NIHAO));
-  assert.strictEqual(s, 'hello world你好', '暂存块必须在定案后一并吐出，否则日志开头会丢');
-  assert.strictEqual(d.encoding, 'gbk');
 });
 t('多字节被 TCP 包切碎也能拼回', () => {
   const d = new StreamDecoder('gbk');
@@ -184,5 +219,77 @@ console.log('\n—— 进程 CPU 差值计算（100ns 时间片 → 整机 0~100
   m.shutdown();
 }
 
-console.log(`\n${pass} 通过 / ${fail} 失败`);
-process.exit(fail ? 1 : 0);
+(async () => {
+  console.log('\n—— 行管线（proc.js 白盒）：批量切行不合并 / 启动完成标记 ——');
+  const { MinecraftProcess, STATE } = require('../server/mc/proc');
+  const tick = () => new Promise((r) => setImmediate(r));
+  {
+    const p = new MinecraftProcess();
+    const seen = [];
+    p.on('line', (l) => seen.push(l.raw));
+    p.state = STATE.STARTING;
+    for (let i = 0; i < 5000; i++) p.partialOut += `[12:00:0${i % 9}] [Server thread/INFO]: noise ${i}\n`;
+    p._drain(false);
+    let guard = 0;
+    while (p.partialOut && guard++ < 200) await tick();
+    t('单块 5000 行逐行切开（旧实现在第 400 行后把剩余合并成一条巨型行）', () => {
+      assert.strictEqual(seen.length, 5000, `实得 ${seen.length} 行`);
+      assert.ok(seen.every((r) => r.length < 160 && !r.includes('\n')), '存在被合并的行');
+    });
+    t('让出事件循环续排后顺序保持', () => {
+      assert.ok(seen[0].endsWith('noise 0'), seen[0]);
+      assert.ok(seen[4999].endsWith('noise 4999'), seen[4999]);
+    });
+  }
+  {
+    const p = new MinecraftProcess();
+    const line = '[17:36:54] [Server thread/INFO] [minecraft/DedicatedServer]: Done (13.206s)! For help, type "help"';
+    const it = p._pushLine(line);
+    t('正文一字不改：前缀只抽成元数据，绝不从显示文本里删掉（面板与 bat 日志一致的前提）', () => {
+      assert.strictEqual(it.raw, line);
+      assert.strictEqual(it.html, line);
+      assert.strictEqual(it.time, '17:36:54');
+      assert.strictEqual(it.level, 'info');
+      assert.strictEqual(it.src, 'stdout');
+    });
+  }
+  const MARKS = [
+    ['Forge 1.20.1 实测 stdout 行', '[17:36:54] [Server thread/INFO] [minecraft/DedicatedServer]: Done (13.206s)! For help, type "help"'],
+    ['Forge 文件日志行（中文月份前缀）', '[039月2026 17:19:28.781] [Server thread/INFO] [net.minecraft.server.dedicated.DedicatedServer/]: Done (10.533s)! For help, type "help"'],
+    ['带 ANSI 的服务端', '\u001b[0m[12:00:01] \u001b[0m[Server thread/\u001b[32mINFO\u001b[0m]: \u001b[32mDone\u001b[0m (3.2s)! For help, type "help"'],
+    ['本地化括号/秒数', '[12:00:01] [Server thread/INFO]: Done（2.5秒）！输入 help 获取帮助'],
+    ['欧陆小数逗号', '[12:00:01] [Server thread/INFO]: Done (3,2s)! For help, type "help"'],
+  ];
+  MARKS.forEach(([name, line], i) => {
+    const p = new MinecraftProcess();
+    p.state = STATE.STARTING;
+    p._pushLine(line);
+    t(`启动标记 ${i + 1}（${name}）→ ONLINE`, () => assert.strictEqual(p.state, STATE.ONLINE, `实为 ${p.state}`));
+  });
+  {
+    const p = new MinecraftProcess();
+    p.state = STATE.STARTING;
+    p._pushLine('[12:00:01] [Server thread/INFO]: Preparing spawn area: 42%');
+    p._pushLine('[12:00:02] [Server thread/INFO]: Loading 148 mods');
+    t('未启动完就结束（无标记）→ 保持 STARTING，交给日志文件兜底', () => assert.strictEqual(p.state, STATE.STARTING));
+  }
+  {
+    const p = new MinecraftProcess();
+    p.state = STATE.STARTING;
+    p._pushLine('Picked up JAVA_TOOL_OPTIONS: -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8');
+    p._pushLine('Picked up JDK_JAVA_OPTIONS: --add-opens java.base/java.lang=ALL-UNNAMED');
+    t('java 对面板注入项的 Picked up 回显被折叠（不与 bat 启动的正文混淆）', () => assert.strictEqual(p.seq, 0, `seq=${p.seq}`));
+    p._pushLine('[12:00:01] [Server thread/INFO]: Picked up 3 items by Steve');
+    t('正文里恰好以 Picked up 开头的行不会被误吞', () => assert.strictEqual(p.seq, 1, `seq=${p.seq}`));
+  }
+  {
+    const p = new MinecraftProcess();
+    p.state = STATE.ONLINE;
+    p._pushLine('[12:00:01] [Server thread/INFO]: Steve[/1.2.3.4:5] logged in with entity id 42');
+    p._pushLine('§a张三[/1.2.3.4:6] logged in with entity id 43');
+    t('玩家进出解析（含 § 色码 + 中文名）', () => assert.deepStrictEqual([...p.players].sort(), ['Steve', '张三']));
+  }
+
+  console.log(`\n${pass} 通过 / ${fail} 失败`);
+  process.exit(fail ? 1 : 0);
+})();
